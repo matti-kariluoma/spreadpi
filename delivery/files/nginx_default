@@ -7,7 +7,7 @@ upstream spreads  {
 ## Start diybookscanner web frontend ##
 server {
     listen       0.0.0.0:80;
-    server_name  spreadbox;
+    server_name  spreadpi;
  
     root   /usr/share/nginx/html;
     index  index.html index.htm;

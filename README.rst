@@ -43,6 +43,15 @@ with the currently experimental webinterface pre-installed and pre-configured
 launched on startup. Make sure that your devices are turned on before the boot
 has finished.
 
-Login accounts:
-    * root:raspberry
-    * spreads:spreads
+To resize a completed .img, mount the .img file
+
+     $ TODO: mount .img
+
+Then chroot in and issue
+
+    $ TODO: chroot
+    $ df -h # decide how much space we need
+    $ resize2fs /dev/XXXn 4000M
+    $ fdisk /dev/XXX # manually change the partition size
+    $ exit # exit the chroot
+    $ fsck /dev/XXXn

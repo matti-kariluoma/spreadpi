@@ -18,7 +18,7 @@
 
 LOGDIR=/var/log/spreads/
 PATH=/bin:/usr/bin
-USER=spreads
+USER=pi
 NAME=`basename $0`
 DESC=$NAME
 LOGFILE="$LOGDIR$NAME.log"
