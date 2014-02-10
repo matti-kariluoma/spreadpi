@@ -4,7 +4,7 @@
 set -e
 
 if [ ${EUID} -ne 0 ]; then
-  echo "this tool must be run as root"
+  echo "this tool must be run as root ;3"
   exit 1
 fi
 
@@ -47,7 +47,6 @@ if $USE_LOCAL_MIRROR; then
 else
     DEB_MIRROR=$DEFAULT_DEB_MIRROR
 fi
-echo "Using mirror $DEB_MIRROR" | tee --append "$LOG"
 # Path to authorized SSH key, exported for scripts/04-users
 if [ -z "$SSH_KEY" ]; then
     SSH_KEY="~/.ssh/id_rsa.pub"
@@ -57,22 +56,7 @@ export SSH_KEY
 if [ -z "$RASBIAN_KEY_URL" ]; then
     RASBIAN_KEY_URL="http://archive.raspbian.org/raspbian.public.key"
 fi
-# Do we have an img to mogrify?
-if [ -z "$1" ] && [ ! -e '2014-01-07-wheezy-rasbian.img' ]; then
-	echo "You didn't supply an img to modify!"
-	echo "Usage: $0 /path/to/...-rasbian.img"
-	echo "Sleeping for 5, then downloading"
-	echo "Downloading http://downloads.raspberrypi.org/raspbian_latest"
-	echo "into the working directory. Hit Ctrl+C to cancel!"
-	sleep 5
-	wget --continue http://downloads.raspberrypi.org/raspbian_latest -O \
-			'2014-01-07-wheezy-rasbian.img'
-	echo "Unzipping..."
-	unzip '2014-01-07-wheezy-rasbian.img'
-	SRCIMG="$(pwd)"'/2014-01-07-wheezy-rasbian.img'
-else
-	SRCIMG="$1"
-fi
+
 # -------------------------------------------------------------------------- #
 
 # Path to build directory, by default a temporary directory
@@ -93,39 +77,27 @@ QEMU_ARM_STATIC="/usr/bin/qemu-arm-static"
 
 echo "Creating log file $LOG"
 touch "$LOG" 
+echo "Using mirror $DEB_MIRROR" | tee --append "$LOG"
+
+# Create build dir
+echo "Create directory $BUILD_ENV" | tee --append "$LOG"
+mkdir -p "${BUILD_ENV}" 
 
 # Install dependencies
-for dep in binfmt-support qemu qemu-user-static debootstrap kpartx lvm2 dosfstools; do
-  echo "Checking for $dep: $problem" | tee --append "$LOG"
+for dep in qemu qemu-user-static kpartx lvm2 unzip; do
   problem=$(dpkg -s $dep|grep installed) 
+  echo "Checking for $dep: $problem" | tee --append "$LOG"
   if [ "" == "$problem" ]; then
     echo "No $dep. Setting up $dep" | tee --append "$LOG"
     apt-get --force-yes --yes install "$dep" &>> "$LOG" 
   fi
 done
 
-# Create build dir
-echo "Create directory $BUILD_ENV" | tee --append "$LOG"
-mkdir -p "${BUILD_ENV}" 
-
-# Create src image root fs mount dir
-echo "Create image mount point $rootfs" | tee --append "$LOG"
-mkdir -p "${SRCIMG_ROOTFS}" 
-echo "Create image mount point $bootfs" | tee --append "$LOG"
-mkdir -p "${SRCIMG_BOOTFS}" 
-
-# Create dest image root fs mount dir
-echo "Create image mount point $rootfs" | tee --append "$LOG"
-mkdir -p "${rootfs}" 
-echo "Create image mount point $bootfs" | tee --append "$LOG"
-mkdir -p "${bootfs}" 
-
 function cleanup()
 {
-	# Make sure we're not in the mounted filesystem anymore, or unmount -l would silently keep waiting!
-	echo "Change working directory to ~ ..." | tee --append "$LOG"
-	cd ~ 
-
+	# don't exit-on-error during cleanup!
+	set +e
+	
 	# Unmount
 	if [ ! -z ${SRCIMG_BOOTFS} ]; then
 		umount -l ${SRCIMG_BOOTFS} &>> $LOG
@@ -151,8 +123,8 @@ function cleanup()
 	fi
 
 	# Remove partition mappings
-	echo "sleep 30 seconds..." | tee --append "$LOG"
-	sleep 30
+	echo "sleep 10 seconds before removing loopbacks..." | tee --append "$LOG"
+	sleep 10
 	if [ ! -z ${lodevice} ]; then
 		echo "remove $lodevice ..." | tee --append "$LOG"
 		kpartx -vd ${lodevice} &>> $LOG 
@@ -165,7 +137,73 @@ function cleanup()
 	fi
 }
 
+trap "cleanup" EXIT
 
+[ -d ${BUILD_ENV} ] || exit 1
+
+# Do we have an img to mogrify?
+if [ -z "$1" ]; then
+	if [ ! -e 'wheezy-rasbian.img' ]; then
+		echo "You didn't supply an img to modify!"
+		echo "Usage: $0 /path/to/...-rasbian.img"
+		echo "Sleeping for 5, then downloading"
+		echo "http://downloads.raspberrypi.org/raspbian_latest"
+		echo "into ${BUILD_ENV} , then unzipping to working directory. "
+		echo "Hit Ctrl+C to cancel!"
+		sleep 5
+		wget --continue http://downloads.raspberrypi.org/raspbian_latest \
+				-O "${BUILD_ENV}/wheezy-rasbian.zip"
+		echo "Unzipping..."
+		unzip "${BUILD_ENV}/wheezy-rasbian.zip" -d "${BUILD_ENV}"
+		echo "Moving .img to working directory..."
+		if [ $(ls "${BUILD_ENV}/*.img" | wc -l) -eq 1 ]; then
+			mv "${BUILD_ENV}/*.img" "$(pwd)"'/wheezy-rasbian.img'
+		else
+			echo "None or multiple .img files found in ${BUILD_ENV} :"
+			ls "${BUILD_ENV}/*.img"
+			echo "...aborting!"
+			exit 1
+		fi
+	fi
+	SRCIMG="$(pwd)"'/wheezy-rasbian.img'
+else
+	SRCIMG="$1"
+fi
+
+# Create src image root fs mount dirs
+echo "Create source image mount points $SRCIMG_ROOTFS and $SRCIMG_BOOTFS" | tee --append "$LOG"
+mkdir -p "${SRCIMG_ROOTFS}" "${SRCIMG_BOOTFS}" 
+# Create dest image root fs dirs
+echo "Create dest image directories $rootfs and $bootfs" | tee --append "$LOG"
+mkdir -p "${rootfs}" "${bootfs}" 
+
+# Set up loopback devices
+echo "Creating a loopback device for $SRCIMG..." | tee --append "$LOG"
+lodevice=$(losetup -f --show ${SRCIMG})
+echo "Loopback $lodevice created." | tee --append "$LOG"
+echo "Removing $lodevice ..." | tee --append "$LOG"
+dmsetup remove_all &>> "$LOG"
+losetup -d "${lodevice}" &>> "$LOG"
+echo "Creating device map for $SRCIMG ... " | tee --append "$LOG"
+device=$(kpartx -va ${SRCIMG} | sed -E 's/.*(loop[0-9])p.*/\1/g' | head -1)
+device="/dev/mapper/${device}"
+echo "Device map created at $device" | tee --append "$LOG"
+SRC_BOOTP="${device}p1"
+SRC_ROOTP="${device}p2"
+# make sure SRC_{B,R}OOTP exists
+[ ! -e "$SRC_BOOTP" ] && exit 1
+[ ! -e "$SRC_ROOTP" ] && exit 1
+# Mount src img
+echo "Mounting $SRC_ROOTP to $SRCIMG_ROOTFS ..." | tee --append "$LOG"
+mount ${SRC_ROOTP} ${SRCIMG_ROOTFS} &>> "$LOG" || cleanup -exit
+echo "Mounting $SRC_BOOTP to $SRCIMG_BOOTFS ..." | tee --append "$LOG"
+mount ${SRC_BOOTP} ${SRCIMG_BOOTFS} &>> "$LOG" || cleanup -exit
+
+# Copy img contents
+echo "Copying $SRCIMG_ROOTFS filesystem to $rootfs..." | tee --append "$LOG"
+rsync --archive "$SRCIMG_ROOTFS/" "$rootfs" &>> "$LOG"
+echo "Copying $SRCIMG_BOOTFS filesystem to $bootfs..." | tee --append "$LOG"
+rsync --archive "$SRCIMG_BOOTFS/" "$bootfs" &>> "$LOG"
 
 # Mount pseudo file systems
 echo "Mounting pseudo filesystems in $rootfs ..." | tee --append "$LOG"
@@ -176,11 +214,22 @@ mount -o bind /dev/pts ${rootfs}/dev/pts || cleanup -exit
 
 # Mount our delivery path
 echo "Mounting $DELIVERY_DIR in $rootfs ..." | tee --append "$LOG"
+mkdir -p ${rootfs}/usr/src/delivery 
 mount -o bind ${DELIVERY_DIR} ${rootfs}/usr/src/delivery || cleanup -exit
 
-# Second stage, using chroot and qemu-arm from the inside
+# copy qemu-arm so we can chroot
 echo "Copying $QEMU_ARM_STATIC into $rootfs" | tee --append "$LOG"
 cp "$QEMU_ARM_STATIC" "${rootfs}/usr/bin/" &>> $LOG || cleanup -exit
+
+if $DEBUG; then
+    echo "Dropping into shell" | tee --append "$LOG"
+    mv "${rootfs}/etc/ld.so.preload" "${rootfs}/etc/ld.so.preload.old"
+    sed 's/^/#/' "${rootfs}/etc/ld.so.preload.old" \
+				> "${rootfs}/etc/ld.so.preload"
+    LANG=C LC_ALL=C PS1="\u@CHROOT\w# " chroot ${rootfs} /bin/bash
+    mv "${rootfs}/etc/ld.so.preload.old" "${rootfs}/etc/ld.so.preload"
+    exit 1
+fi
 
 # Configure Debian release and mirror
 echo "Configure apt in $rootfs..." | tee --append "$LOG"
