@@ -132,11 +132,8 @@ function cleanup()
 	# Remove partition mappings
 	echo "sleep 10 seconds before removing loopbacks..." | tee --append "$LOG"
 	sleep 10
-		if [ ! -z ${srclodevice} ]; then
-		echo "remove $srclodevice ..." | tee --append "$LOG"
-		kpartx -vd ${srclodevice} &>> $LOG
-		losetup -d ${srclodevice} &>> $LOG
-	fi
+	
+	# remove loopbacks
 	if [ ! -z ${lodevice} ]; then
 		echo "remove $lodevice ..." | tee --append "$LOG"
 		kpartx -vd ${lodevice} &>> $LOG
@@ -188,19 +185,13 @@ else
 fi
 
 # Create src image root fs mount dirs
-echo "Create source image mount points $SRCIMG_ROOTFS and $SRCIMG_BOOTFS" | tee --append "$LOG"
-mkdir -p "${SRCIMG_ROOTFS}" "${SRCIMG_BOOTFS}"
+echo "Create source image mount point $SRCIMG_ROOTFS" | tee --append "$LOG"
+mkdir -p "${SRCIMG_ROOTFS}"
 # Create dest image root fs dirs
-echo "Create dest image directories $rootfs and $bootfs" | tee --append "$LOG"
-mkdir -p "${rootfs}" "${bootfs}"
+echo "Create dest image directory $rootfs" | tee --append "$LOG"
+mkdir -p "${rootfs}"
 
-# Set up loopback devices
-echo "Creating a loopback device for $SRCIMG..." | tee --append "$LOG"
-srclodevice=$(losetup -f --show ${SRCIMG})
-echo "Loopback $srclodevice created." | tee --append "$LOG"
-echo "Removing $srclodevice ..." | tee --append "$LOG"
-dmsetup remove_all &>> "$LOG"
-losetup -d "${srclodevice}" &>> "$LOG"
+# map image partitions
 echo "Creating device map for $SRCIMG ... " | tee --append "$LOG"
 srcdevice=$(kpartx -va ${SRCIMG} | sed -E 's/.*(loop[0-9])p.*/\1/g' | head -1)
 srcdevice="/dev/mapper/${srcdevice}"
@@ -219,14 +210,14 @@ mount ${SRC_BOOTP} ${SRCIMG_BOOTFS} &>> "$LOG"
 # Create image file
 echo "Initializing image file $IMG" | tee --append "$LOG"
 dd if=/dev/zero of="${IMG}" bs=1MB count=$IMAGESIZE &>> "$LOG"
-echo "Creating a loopback device for $IMG..." | tee --append "$LOG"
+echo "Creating a loopback device for $IMG ..." | tee --append "$LOG"
 lodevice=$(losetup -f --show ${IMG})
 echo "Loopback $lodevice created." | tee --append "$LOG"
 # Setup up /boot and /root partitions
 # TODO: fdisk always returns 1, so we can't use '|| exit 1'
 # TODO: find other way to verify partitions made (maybe fdisk | wc -l)
 set +e
-echo "Creating partitions on $IMG..." | tee --append "$LOG"
+echo "Creating partitions on $IMG ..." | tee --append "$LOG"
 echo "
 n
 p
@@ -243,10 +234,11 @@ p
 w
 " | fdisk ${lodevice} &>> "$LOG"
 set -e
-# Set up loopback devices
+# remove loopback devices
 echo "Removing $lodevice ..." | tee --append "$LOG"
 dmsetup remove_all &>> "$LOG"
 losetup -d ${lodevice} &>> "$LOG"
+# create device mapping
 echo "Creating device map for $IMG ... " | tee --append "$LOG"
 device=$(kpartx -va ${IMG} | sed -E 's/.*(loop[0-9])p.*/\1/g' | head -1)
 device="/dev/mapper/${device}"
@@ -269,9 +261,9 @@ mkdir -p ${bootfs} &>> "$LOG"
 mount ${bootp} ${bootfs} &>> "$LOG"
 
 # Copy img contents
-echo "Copying $SRCIMG_ROOTFS filesystem to $rootfs..." | tee --append "$LOG"
+echo "Copying $SRCIMG_ROOTFS filesystem to $rootfs ..." | tee --append "$LOG"
 rsync --archive "$SRCIMG_ROOTFS/" "$rootfs" &>> "$LOG"
-echo "Copying $SRCIMG_BOOTFS filesystem to $bootfs..." | tee --append "$LOG"
+echo "Copying $SRCIMG_BOOTFS filesystem to $bootfs ..." | tee --append "$LOG"
 rsync --archive "$SRCIMG_BOOTFS/" "$bootfs" &>> "$LOG"
 
 # Mount pseudo file systems
@@ -359,7 +351,7 @@ echo "sync filesystems, sleep 15 seconds" | tee --append "$LOG"
 sync
 sleep 15
 
-cleanup
-
 echo "Successfully created image ${IMG}" | tee --append "$LOG"
+
+# `cleanup' will be called when we exit
 exit 0
