@@ -138,10 +138,14 @@ function cleanup()
 		kpartx -vd ${lodevice} &>> $LOG 
 		losetup -d ${lodevice} &>> $LOG 
 	fi
+	
+	if [ ! -z "$1" ] && [ "$1" == "-exit" ]; then
+		echo "Error occurred! Read $LOG for details" | tee --append "$LOG"
+	fi
 }
 
 # if anything exits with an error code, call cleanup
-trap "cleanup" EXIT
+trap "cleanup -exit" EXIT
 
 [ -d ${BUILD_ENV} ] || exit 1
 
@@ -252,6 +256,7 @@ mkfs.ext4 ${rootp} &>> "$LOG"
 echo "Mounting $rootp to $rootfs ..." | tee --append "$LOG"
 mount ${rootp} ${rootfs} &>> "$LOG"
 echo "Mounting $bootp to $bootfs ..." | tee --append "$LOG"
+mkdir -p ${bootfs} &>> "$LOG"
 mount ${bootp} ${bootfs} &>> "$LOG"
 
 # Copy img contents
@@ -332,6 +337,9 @@ fi
 # Put back the default ld.so.preload (hopefully no processes touched it
 # in the meanwhile
 mv "${rootfs}/etc/ld.so.preload.old" "${rootfs}/etc/ld.so.preload"
+
+# okay, don't care about errors anymore
+set +e
 
 # Kill remaining qemu-arm-static processes
 echo "Killing remaining qemu-arm-static processes..." | tee --append "$LOG"
