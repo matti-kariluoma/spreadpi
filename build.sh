@@ -28,6 +28,14 @@ fi
 if [ -z "$VERSION" ]; then
     VERSION="$(date +%s)"
 fi
+# Size of target SD card in MB
+if [ -z "$IMAGESIZE" ]; then
+    IMAGESIZE="4000"
+fi
+# Size of /boot partition
+if [ -z "$BOOTSIZE" ]; then
+    BOOTSIZE="64M"
+fi
 # Debian version
 if [ -z "$DEB_RELEASE" ]; then
     DEB_RELEASE="wheezy"
@@ -84,7 +92,7 @@ echo "Create directory $BUILD_ENV" | tee --append "$LOG"
 mkdir -p "${BUILD_ENV}" 
 
 # Install dependencies
-for dep in qemu qemu-user-static kpartx lvm2 unzip; do
+for dep in  binfmt-support qemu qemu-user-static kpartx lvm2 dosfstools unzip; do
   problem=$(dpkg -s $dep|grep installed) 
   echo "Checking for $dep: $problem" | tee --append "$LOG"
   if [ "" == "$problem" ]; then
@@ -130,13 +138,9 @@ function cleanup()
 		kpartx -vd ${lodevice} &>> $LOG 
 		losetup -d ${lodevice} &>> $LOG 
 	fi
-	
-	if [ ! -z "$1" ] && [ "$1" == "-exit" ]; then
-		echo "Error occurred! Read $LOG for details" | tee --append "$LOG"
-		exit 1
-	fi
 }
 
+# if anything exits with an error code, call cleanup
 trap "cleanup" EXIT
 
 [ -d ${BUILD_ENV} ] || exit 1
@@ -179,25 +183,76 @@ mkdir -p "${rootfs}" "${bootfs}"
 
 # Set up loopback devices
 echo "Creating a loopback device for $SRCIMG..." | tee --append "$LOG"
-lodevice=$(losetup -f --show ${SRCIMG})
-echo "Loopback $lodevice created." | tee --append "$LOG"
-echo "Removing $lodevice ..." | tee --append "$LOG"
+srclodevice=$(losetup -f --show ${SRCIMG})
+echo "Loopback $srclodevice created." | tee --append "$LOG"
+echo "Removing $srclodevice ..." | tee --append "$LOG"
 dmsetup remove_all &>> "$LOG"
-losetup -d "${lodevice}" &>> "$LOG"
+losetup -d "${srclodevice}" &>> "$LOG"
 echo "Creating device map for $SRCIMG ... " | tee --append "$LOG"
-device=$(kpartx -va ${SRCIMG} | sed -E 's/.*(loop[0-9])p.*/\1/g' | head -1)
-device="/dev/mapper/${device}"
-echo "Device map created at $device" | tee --append "$LOG"
-SRC_BOOTP="${device}p1"
-SRC_ROOTP="${device}p2"
+srcdevice=$(kpartx -va ${SRCIMG} | sed -E 's/.*(loop[0-9])p.*/\1/g' | head -1)
+srcdevice="/dev/mapper/${srcdevice}"
+echo "Device map created at $srcdevice" | tee --append "$LOG"
+SRC_BOOTP="${srcdevice}p1"
+SRC_ROOTP="${srcdevice}p2"
 # make sure SRC_{B,R}OOTP exists
 [ ! -e "$SRC_BOOTP" ] && exit 1
 [ ! -e "$SRC_ROOTP" ] && exit 1
 # Mount src img
 echo "Mounting $SRC_ROOTP to $SRCIMG_ROOTFS ..." | tee --append "$LOG"
-mount ${SRC_ROOTP} ${SRCIMG_ROOTFS} &>> "$LOG" || cleanup -exit
+mount ${SRC_ROOTP} ${SRCIMG_ROOTFS} &>> "$LOG"
 echo "Mounting $SRC_BOOTP to $SRCIMG_BOOTFS ..." | tee --append "$LOG"
-mount ${SRC_BOOTP} ${SRCIMG_BOOTFS} &>> "$LOG" || cleanup -exit
+mount ${SRC_BOOTP} ${SRCIMG_BOOTFS} &>> "$LOG"
+
+# Create image file
+echo "Initializing image file $IMG" | tee --append "$LOG"
+dd if=/dev/zero of="${IMG}" bs=1MB count=$IMAGESIZE &>> "$LOG"
+echo "Creating a loopback device for $IMG..." | tee --append "$LOG"
+lodevice=$(losetup -f --show ${IMG})
+echo "Loopback $lodevice created." | tee --append "$LOG"
+# Setup up /boot and /root partitions
+# TODO: fdisk always returns 1, so we can't use '|| exit 1'
+# TODO: find other way to verify partitions made (maybe fdisk | wc -l)
+set +e
+echo "Creating partitions on $IMG..." | tee --append "$LOG"
+echo "
+n
+p
+1
+ 
++${BOOTSIZE}
+t
+c
+n
+p
+2
+
+
+w
+" | fdisk ${lodevice} &>> "$LOG"
+set -e
+# Set up loopback devices
+echo "Removing $lodevice ..." | tee --append "$LOG"
+dmsetup remove_all &>> "$LOG" 
+losetup -d ${lodevice} &>> "$LOG"
+echo "Creating device map for $IMG ... " | tee --append "$LOG"
+device=$(kpartx -va ${IMG} | sed -E 's/.*(loop[0-9])p.*/\1/g' | head -1)
+device="/dev/mapper/${device}"
+echo "Device map created at $device" | tee --append "$LOG"
+bootp="${device}p1"
+rootp="${device}p2"
+# Do bootp and rootp exist?
+echo "Checking if $bootp and $rootp exist..." | tee --append "$LOG"
+[ ! -e "$bootp" ] && exit 1
+[ ! -e "$rootp" ] && exit 1
+# Create file systems
+echo "Creating filesystems on $IMG ..." | tee --append "$LOG"
+mkfs.vfat ${bootp} &>> "$LOG"
+mkfs.ext4 ${rootp} &>> "$LOG"
+# mount created filesystems
+echo "Mounting $rootp to $rootfs ..." | tee --append "$LOG"
+mount ${rootp} ${rootfs} &>> "$LOG"
+echo "Mounting $bootp to $bootfs ..." | tee --append "$LOG"
+mount ${bootp} ${bootfs} &>> "$LOG"
 
 # Copy img contents
 echo "Copying $SRCIMG_ROOTFS filesystem to $rootfs..." | tee --append "$LOG"
@@ -207,30 +262,24 @@ rsync --archive "$SRCIMG_BOOTFS/" "$bootfs" &>> "$LOG"
 
 # Mount pseudo file systems
 echo "Mounting pseudo filesystems in $rootfs ..." | tee --append "$LOG"
-mount -t proc none ${rootfs}/proc || cleanup -exit
-mount -t sysfs none ${rootfs}/sys || cleanup -exit
-mount -o bind /dev ${rootfs}/dev || cleanup -exit
-mount -o bind /dev/pts ${rootfs}/dev/pts || cleanup -exit
+mount -t proc none ${rootfs}/proc
+mount -t sysfs none ${rootfs}/sys
+mount -o bind /dev ${rootfs}/dev
+mount -o bind /dev/pts ${rootfs}/dev/pts
 
 # Mount our delivery path
 echo "Mounting $DELIVERY_DIR in $rootfs ..." | tee --append "$LOG"
 mkdir -p ${rootfs}/usr/src/delivery 
-mount -o bind ${DELIVERY_DIR} ${rootfs}/usr/src/delivery || cleanup -exit
+mount -o bind ${DELIVERY_DIR} ${rootfs}/usr/src/delivery 
 
 # copy qemu-arm so we can chroot
 echo "Copying $QEMU_ARM_STATIC into $rootfs" | tee --append "$LOG"
-cp "$QEMU_ARM_STATIC" "${rootfs}/usr/bin/" &>> $LOG || cleanup -exit
-
-if $DEBUG; then
-    echo "Dropping into shell" | tee --append "$LOG"
-    mv "${rootfs}/etc/ld.so.preload" "${rootfs}/etc/ld.so.preload.old"
-    sed 's/^/#/' "${rootfs}/etc/ld.so.preload.old" \
-				> "${rootfs}/etc/ld.so.preload"
-    LANG=C LC_ALL=C PS1="\u@CHROOT\w# " chroot ${rootfs} /bin/bash
-    mv "${rootfs}/etc/ld.so.preload.old" "${rootfs}/etc/ld.so.preload"
-    exit 1
-fi
-
+cp "$QEMU_ARM_STATIC" "${rootfs}/usr/bin/" &>> $LOG 
+# modify etc/ld.so.preload (maybe only needed for interactive bash?)
+mv "${rootfs}/etc/ld.so.preload" "${rootfs}/etc/ld.so.preload.old"
+sed 's/^/#/' "${rootfs}/etc/ld.so.preload.old" \
+		> "${rootfs}/etc/ld.so.preload"
+		
 # Configure Debian release and mirror
 echo "Configure apt in $rootfs..." | tee --append "$LOG"
 echo "deb ${DEB_MIRROR} ${DEB_RELEASE} main contrib non-free
@@ -238,58 +287,24 @@ echo "deb ${DEB_MIRROR} ${DEB_RELEASE} main contrib non-free
 # make sure the file we just wrote exists still
 [ ! -e "${rootfs}/etc/apt/sources.list" ] && cleanup -exit
 
-# Configure Raspberry Pi boot options
-BOOT_CONF="${rootfs}/boot/cmdline.txt"
-echo "Writing $BOOT_CONF ..." | tee --append "$LOG"
-rm -f $BOOT_CONF
-touch $BOOT_CONF
-echo -n "dwc_otg.lpm_enable=0 console=ttyAMA0,115200" >> $BOOT_CONF
-echo -n "kgdboc=ttyAMA0,115200 console=tty1" >> $BOOT_CONF
-echo "root=/dev/mmcblk0p2 rootfstype=ext4 rootwait" >> $BOOT_CONF
-[ ! -e "$BOOT_CONF" ] && cleanup -exit
-
-# Set up mount points
-echo "Writing $rootfs/etc/fstab ..." | tee --append "$LOG"
-echo "proc	/proc	proc	defaults	0	0
-/dev/mmcblk0p1	/boot	vfat	defaults	0	0
-" > "$rootfs/etc/fstab"
-[ ! -e "$rootfs/etc/fstab" ] && cleanup -exit
-
 # Configure Hostname
 echo "Writing $rootfs/etc/hostname ..." | tee --append "$LOG"
 echo "spreadpi" > "$rootfs/etc/hostname"
 [ ! -e "$rootfs/etc/hostname" ] && cleanup -exit
-
-# Configure networking
-echo "Writing $rootfs/etc/network/interfaces ..." | tee --append "$LOG"
-echo "auto lo
-iface lo inet loopback
-
-auto eth0
-iface eth0 inet dhcp
-" > "$rootfs/etc/network/interfaces"
-[ ! -e "$rootfs/etc/network/interfaces" ] && cleanup -exit
-
-# Configure loading of proprietary kernel modules
-echo "Writing $rootfs/etc/modules ..." | tee --append "$LOG"
-echo "vchiq
-snd_bcm2835
-" >> "$rootfs/etc/modules"
-[ ! -e "$rootfs/etc/modules" ] && cleanup -exit
 
 # TODO: What does this do?
 echo "Writing $rootfs/debconf.set ..." | tee --append "$LOG"
 echo "console-common	console-data/keymap/policy	select	Select keymap from full list
 console-common	console-data/keymap/full	select	us
 " > "$rootfs/debconf.set"
-[ ! -e "$rootfs/debconf.set" ] && cleanup -exit
+[ ! -e "$rootfs/debconf.set" ] && exit 1
 
 # Run user-defined scripts from DELIVERY_DIR/scripts
 echo "Running custom bootstrapping scripts" | tee --append "$LOG"
 for path in $rootfs/usr/src/delivery/scripts/*; do
 		script=$(basename "$path")
     echo $script | tee --append "$LOG"
-    DELIVERY_DIR=/usr/src/delivery LANG=C chroot ${rootfs} "/usr/src/delivery/scripts/$script" &>> $LOG || cleanup -exit
+    DELIVERY_DIR=/usr/src/delivery LANG=C chroot ${rootfs} "/usr/src/delivery/scripts/$script" &>> $LOG 
 done
 
 # Configure default mirror
@@ -307,12 +322,16 @@ apt-get clean
 rm -f cleanup 
 " > "$rootfs/cleanup"
 chmod +x "$rootfs/cleanup"
-LANG=C chroot ${rootfs} /cleanup &>> $LOG || cleanup -exit
+LANG=C LC_ALL=C chroot ${rootfs} /cleanup &>> $LOG 
 
 if $DEBUG; then
     echo "Dropping into shell" | tee --append "$LOG"
-    LANG=C chroot ${rootfs} /bin/bash
+    LANG=C LC_ALL=C PS1="\u@CHROOT\w# " chroot ${rootfs} /bin/bash
 fi
+
+# Put back the default ld.so.preload (hopefully no processes touched it
+# in the meanwhile
+mv "${rootfs}/etc/ld.so.preload.old" "${rootfs}/etc/ld.so.preload"
 
 # Kill remaining qemu-arm-static processes
 echo "Killing remaining qemu-arm-static processes..." | tee --append "$LOG"

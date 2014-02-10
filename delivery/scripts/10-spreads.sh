@@ -32,9 +32,9 @@ python setup.py install || exit 1
 pip install git+https://github.com/gbishop/cython-hidapi.git || exit 1
 
 # Create spreads configuration directoy
-mkdir -p /home/spreads/.config/spreads || exit 1
-cp $DELIVERY_DIR/files/config.yaml /home/spreads/.config/spreads || exit 1
-chown -R spreads /home/spreads/.config/spreads || exit 1
+mkdir -p /home/pi/.config/spreads || exit 1
+cp $DELIVERY_DIR/files/config.yaml /home/pi/.config/spreads || exit 1
+chown -R pi /home/pi/.config/spreads || exit 1
 
 # Install spreads init script
 cp $DELIVERY_DIR/files/spread /etc/init.d/spread || exit 1
