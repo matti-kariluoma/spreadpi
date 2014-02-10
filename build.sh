@@ -69,7 +69,7 @@ fi
 
 # Path to build directory, by default a temporary directory
 echo "Creating temporary directory..."
-BUILD_ENV=$(mktemp -d) 
+BUILD_ENV=$(mktemp -d)
 echo "Temporary directory created at $BUILD_ENV"
 
 BASE_DIR="$(dirname $0)"
@@ -84,20 +84,20 @@ bootfs="${rootfs}/boot"
 QEMU_ARM_STATIC="/usr/bin/qemu-arm-static"
 
 echo "Creating log file $LOG"
-touch "$LOG" 
+touch "$LOG"
 echo "Using mirror $DEB_MIRROR" | tee --append "$LOG"
 
 # Create build dir
 echo "Create directory $BUILD_ENV" | tee --append "$LOG"
-mkdir -p "${BUILD_ENV}" 
+mkdir -p "${BUILD_ENV}"
 
 # Install dependencies
 for dep in  binfmt-support qemu qemu-user-static kpartx lvm2 dosfstools unzip; do
-  problem=$(dpkg -s $dep|grep installed) 
+  problem=$(dpkg -s $dep|grep installed)
   echo "Checking for $dep: $problem" | tee --append "$LOG"
   if [ "" == "$problem" ]; then
     echo "No $dep. Setting up $dep" | tee --append "$LOG"
-    apt-get --force-yes --yes install "$dep" &>> "$LOG" 
+    apt-get --force-yes --yes install "$dep" &>> "$LOG"
   fi
 done
 
@@ -105,23 +105,42 @@ function cleanup()
 {
 	# don't exit-on-error during cleanup!
 	set +e
-	
+
 	# Unmount
-	if [ ! -z ${SRCIMG_BOOTFS} ]; then
-		umount -l ${SRCIMG_BOOTFS} &>> $LOG
+	umount -l ${SRCIMG_BOOTFS} &>> $LOG
+	if [ ! -z ${SRC_BOOTP} ]; then
+		umount -l ${SRC_BOOTP} &>> $LOG
 	fi
-	umount -l ${SRCIMG_ROOTFS} &>> $LOG 
+	umount -l ${SRCIMG_ROOTFS} &>> $LOG
+	if [ ! -z ${SRC_ROOTP} ]; then
+		umount -l ${SRC_ROOTP} &>> $LOG
+	fi
+	umount -l ${bootfs} &>> $LOG
 	if [ ! -z ${bootp} ]; then
 		umount -l ${bootp} &>> $LOG
 	fi
-	umount -l ${rootfs}/usr/src/delivery &>> $LOG 
-	umount -l ${rootfs}/dev/pts &>> $LOG 
-	umount -l ${rootfs}/dev &>> $LOG 
-	umount -l ${rootfs}/sys &>> $LOG 
-	umount -l ${rootfs}/proc &>> $LOG 
-	umount -l ${rootfs} &>> $LOG 
+	umount -l ${rootfs}/usr/src/delivery &>> $LOG
+	umount -l ${rootfs}/dev/pts &>> $LOG
+	umount -l ${rootfs}/dev &>> $LOG
+	umount -l ${rootfs}/sys &>> $LOG
+	umount -l ${rootfs}/proc &>> $LOG
+	umount -l ${rootfs} &>> $LOG
 	if [ ! -z ${rootp} ]; then
-		umount -l ${rootp} &>> $LOG 
+		umount -l ${rootp} &>> $LOG
+	fi
+
+	# Remove partition mappings
+	echo "sleep 10 seconds before removing loopbacks..." | tee --append "$LOG"
+	sleep 10
+		if [ ! -z ${srclodevice} ]; then
+		echo "remove $srclodevice ..." | tee --append "$LOG"
+		kpartx -vd ${srclodevice} &>> $LOG
+		losetup -d ${srclodevice} &>> $LOG
+	fi
+	if [ ! -z ${lodevice} ]; then
+		echo "remove $lodevice ..." | tee --append "$LOG"
+		kpartx -vd ${lodevice} &>> $LOG
+		losetup -d ${lodevice} &>> $LOG
 	fi
 
 	# Remove build directory
@@ -129,16 +148,6 @@ function cleanup()
 		echo "Remove directory $BUILD_ENV ..." | tee --append "$LOG"
 		rm -rf "$BUILD_ENV"
 	fi
-
-	# Remove partition mappings
-	echo "sleep 10 seconds before removing loopbacks..." | tee --append "$LOG"
-	sleep 10
-	if [ ! -z ${lodevice} ]; then
-		echo "remove $lodevice ..." | tee --append "$LOG"
-		kpartx -vd ${lodevice} &>> $LOG 
-		losetup -d ${lodevice} &>> $LOG 
-	fi
-	
 	if [ ! -z "$1" ] && [ "$1" == "-exit" ]; then
 		echo "Error occurred! Read $LOG for details" | tee --append "$LOG"
 	fi
@@ -180,10 +189,10 @@ fi
 
 # Create src image root fs mount dirs
 echo "Create source image mount points $SRCIMG_ROOTFS and $SRCIMG_BOOTFS" | tee --append "$LOG"
-mkdir -p "${SRCIMG_ROOTFS}" "${SRCIMG_BOOTFS}" 
+mkdir -p "${SRCIMG_ROOTFS}" "${SRCIMG_BOOTFS}"
 # Create dest image root fs dirs
 echo "Create dest image directories $rootfs and $bootfs" | tee --append "$LOG"
-mkdir -p "${rootfs}" "${bootfs}" 
+mkdir -p "${rootfs}" "${bootfs}"
 
 # Set up loopback devices
 echo "Creating a loopback device for $SRCIMG..." | tee --append "$LOG"
@@ -222,7 +231,7 @@ echo "
 n
 p
 1
- 
+
 +${BOOTSIZE}
 t
 c
@@ -236,7 +245,7 @@ w
 set -e
 # Set up loopback devices
 echo "Removing $lodevice ..." | tee --append "$LOG"
-dmsetup remove_all &>> "$LOG" 
+dmsetup remove_all &>> "$LOG"
 losetup -d ${lodevice} &>> "$LOG"
 echo "Creating device map for $IMG ... " | tee --append "$LOG"
 device=$(kpartx -va ${IMG} | sed -E 's/.*(loop[0-9])p.*/\1/g' | head -1)
@@ -274,17 +283,17 @@ mount -o bind /dev/pts ${rootfs}/dev/pts
 
 # Mount our delivery path
 echo "Mounting $DELIVERY_DIR in $rootfs ..." | tee --append "$LOG"
-mkdir -p ${rootfs}/usr/src/delivery 
-mount -o bind ${DELIVERY_DIR} ${rootfs}/usr/src/delivery 
+mkdir -p ${rootfs}/usr/src/delivery
+mount -o bind ${DELIVERY_DIR} ${rootfs}/usr/src/delivery
 
 # copy qemu-arm so we can chroot
 echo "Copying $QEMU_ARM_STATIC into $rootfs" | tee --append "$LOG"
-cp "$QEMU_ARM_STATIC" "${rootfs}/usr/bin/" &>> $LOG 
+cp "$QEMU_ARM_STATIC" "${rootfs}/usr/bin/" &>> $LOG
 # modify etc/ld.so.preload (maybe only needed for interactive bash?)
 mv "${rootfs}/etc/ld.so.preload" "${rootfs}/etc/ld.so.preload.old"
 sed 's/^/#/' "${rootfs}/etc/ld.so.preload.old" \
 		> "${rootfs}/etc/ld.so.preload"
-		
+
 # Configure Debian release and mirror
 echo "Configure apt in $rootfs..." | tee --append "$LOG"
 echo "deb ${DEB_MIRROR} ${DEB_RELEASE} main contrib non-free
@@ -309,7 +318,7 @@ echo "Running custom bootstrapping scripts" | tee --append "$LOG"
 for path in $rootfs/usr/src/delivery/scripts/*; do
 		script=$(basename "$path")
     echo $script | tee --append "$LOG"
-    DELIVERY_DIR=/usr/src/delivery LANG=C chroot ${rootfs} "/usr/src/delivery/scripts/$script" &>> $LOG 
+    DELIVERY_DIR=/usr/src/delivery LANG=C chroot ${rootfs} "/usr/src/delivery/scripts/$script" &>> $LOG
 done
 
 # Configure default mirror
@@ -321,13 +330,13 @@ echo "deb ${DEFAULT_DEB_MIRROR} ${DEB_RELEASE} main contrib non-free
 # Clean up
 echo "Cleaning up bootstrapped system" | tee --append "$LOG"
 echo "#!/bin/bash
-aptitude update 
-aptitude clean 
-apt-get clean 
-rm -f cleanup 
+aptitude update
+aptitude clean
+apt-get clean
+rm -f cleanup
 " > "$rootfs/cleanup"
 chmod +x "$rootfs/cleanup"
-LANG=C LC_ALL=C chroot ${rootfs} /cleanup &>> $LOG 
+LANG=C LC_ALL=C chroot ${rootfs} /cleanup &>> $LOG
 
 if $DEBUG; then
     echo "Dropping into shell" | tee --append "$LOG"
