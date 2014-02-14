@@ -37,7 +37,8 @@ mkdir -p /home/pi/.config/spreads || exit 1
 cp $DELIVERY_DIR/files/config.yaml /home/pi/.config/spreads || exit 1
 chown -R pi /home/pi/.config/spreads || exit 1
 
-cp $DELIVERY_DIR/files/usr.local.bin.startspread /usr/local/bin || exit 1
+cp $DELIVERY_DIR/files/usr.local.bin.startspread \
+		/usr/local/bin/startspread || exit 1
 
 # Install spreads init script
 cp $DELIVERY_DIR/files/spread /etc/init.d/spread || exit 1
