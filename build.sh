@@ -101,11 +101,8 @@ for dep in  binfmt-support qemu qemu-user-static kpartx lvm2 dosfstools unzip; d
   fi
 done
 
-function cleanup()
+function unmount_all()
 {
-	# don't exit-on-error during cleanup!
-	set +e
-
 	# Unmount
 	umount -l ${SRCIMG_BOOTFS} &>> $LOG
 	if [ ! -z ${SRC_BOOTP} ]; then
@@ -128,7 +125,15 @@ function cleanup()
 	if [ ! -z ${rootp} ]; then
 		umount -l ${rootp} &>> $LOG
 	fi
+}
 
+function cleanup()
+{
+	# don't exit-on-error during cleanup!
+	set +e
+	
+	unmount_all
+	
 	# Remove partition mappings
 	echo "sleep 10 seconds before removing loopbacks..." | tee --append "$LOG"
 	sleep 10
@@ -350,6 +355,15 @@ pkill -9 -f ".*qemu-arm-static.*"
 echo "sync filesystems, sleep 15 seconds" | tee --append "$LOG"
 sync
 sleep 15
+
+echo "unmount mounted filesystems..." | tee --append "$LOG"
+unmount_all
+
+echo "fsck $bootp ..." | tee --append "$LOG"
+fsck "$bootp" | tee --append "$LOG"
+
+echo "fsck $rootp ..." | tee --append "$LOG"
+fsck "$rootp" | tee --append "$LOG"
 
 echo "Successfully created image ${IMG}" | tee --append "$LOG"
 
