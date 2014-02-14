@@ -256,7 +256,7 @@ echo "Checking if $bootp and $rootp exist..." | tee --append "$LOG"
 [ ! -e "$rootp" ] && exit 1
 # Create file systems
 echo "Creating filesystems on $IMG ..." | tee --append "$LOG"
-mkfs.vfat ${bootp} &>> "$LOG"
+mkfs.vfat -F 32 -n 'boot' ${bootp} &>> "$LOG"
 mkfs.ext4 ${rootp} &>> "$LOG"
 # mount created filesystems
 echo "Mounting $rootp to $rootfs ..." | tee --append "$LOG"
