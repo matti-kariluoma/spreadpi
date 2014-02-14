@@ -360,10 +360,10 @@ echo "unmount mounted filesystems..." | tee --append "$LOG"
 unmount_all
 
 echo "fsck $bootp ..." | tee --append "$LOG"
-fsck "$bootp" | tee --append "$LOG"
+fsck -pv "$bootp" | tee --append "$LOG"
 
 echo "fsck $rootp ..." | tee --append "$LOG"
-fsck "$rootp" | tee --append "$LOG"
+fsck -pv "$rootp" | tee --append "$LOG"
 
 echo "Successfully created image ${IMG}" | tee --append "$LOG"
 
