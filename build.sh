@@ -354,4 +354,5 @@ sleep 15
 echo "Successfully created image ${IMG}" | tee --append "$LOG"
 
 # `cleanup' will be called when we exit
+trap "cleanup" EXIT # overwrites the previously set trap
 exit 0

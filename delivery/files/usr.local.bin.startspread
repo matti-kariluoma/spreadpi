@@ -1,0 +1,9 @@
+#!/bin/bash
+#
+# Matti Kariluoma <matti@kariluo.ma> 2014 Jan 31
+
+# issue when booting with cameras connected
+LUA_PATH=/usr/local/lib/chdkptp/lua/?.lua /usr/local/lib/chdkptp/chdkptp -e'list'
+
+/usr/local/bin/spread web --mode=scanner &
+

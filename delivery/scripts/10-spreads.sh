@@ -21,9 +21,10 @@ pip install cffi || exit 1
 git clone https://github.com/jbaiter/spreads.git /usr/src/spreads || exit 1
 cd /usr/src/spreads || exit 1
 git checkout webplugin || exit 1
+pip install futures==2.1.4 || exit 1
 # https://github.com/openxc/openxc-python/issues/18
 pip install --pre pyusb || exit 1
-pip install colorama futures flask flask-compress zipstream \
+pip install colorama flask flask-compress zipstream \
 		waitress requests jpegtran-cffi || exit 1
 pip install git+https://github.com/dreamhost/stevedore.git@0.13
 python setup.py install || exit 1
@@ -35,6 +36,8 @@ pip install git+https://github.com/gbishop/cython-hidapi.git || exit 1
 mkdir -p /home/pi/.config/spreads || exit 1
 cp $DELIVERY_DIR/files/config.yaml /home/pi/.config/spreads || exit 1
 chown -R pi /home/pi/.config/spreads || exit 1
+
+cp $DELIVERY_DIR/files/usr.local.bin.startspread /usr/local/bin || exit 1
 
 # Install spreads init script
 cp $DELIVERY_DIR/files/spread /etc/init.d/spread || exit 1
