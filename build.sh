@@ -302,6 +302,21 @@ echo "deb ${DEB_MIRROR} ${DEB_RELEASE} main contrib non-free
 echo "Writing $rootfs/etc/hostname ..." | tee --append "$LOG"
 echo "spreadpi" > "$rootfs/etc/hostname"
 [ ! -e "$rootfs/etc/hostname" ] && cleanup -exit
+echo "Writing $rootfs/etc/hosts ..." | tee --append "$LOG"
+if [ ! -e "$rootfs/etc/hosts" ]; then
+	echo '127.0.0.1       localhost
+::1             localhost ip6-localhost ip6-loopback
+fe00::0         ip6-localnet
+ff00::0         ip6-mcastprefix
+ff02::1         ip6-allnodes
+ff02::2         ip6-allrouters
+
+127.0.1.1       spreadpi
+' > "$rootfs/etc/hosts"
+else
+	sed -i 's/raspberrypi/spreadpi/' "$rootfs/etc/hosts"
+fi
+[ ! -e "$rootfs/etc/hosts" ] && cleanup -exit
 
 # TODO: What does this do?
 echo "Writing $rootfs/debconf.set ..." | tee --append "$LOG"
