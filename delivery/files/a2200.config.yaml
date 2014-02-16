@@ -15,11 +15,13 @@ device:
     sensitivity: 80
     flip_target_pages: no
     shutter_speed: 1/25
+driver: a2200
+verbose: no
 web:
-    database: ~/.config/pi/workflows.db
+    standalone_device: no
+    database: ~/.config/spreads/workflows.db
     mode: scanner
     project_dir: ~/scans
     postprocessing_server: ''
     debug: no
-driver: a2200
-logfile: ~/.config/pi/spreads.log
+logfile: ~/.config/spreads/spreads.log
