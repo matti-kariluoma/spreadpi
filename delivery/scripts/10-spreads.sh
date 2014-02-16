@@ -18,16 +18,11 @@ pip --version || exit 1
 pip install cffi || exit 1
 
 # Install spreads from GitHub
-git clone https://github.com/jbaiter/spreads.git /usr/src/spreads || exit 1
+git clone https://github.com/matti-kariluoma/spreads.git /usr/src/spreads || exit 1
 cd /usr/src/spreads || exit 1
-git checkout webplugin || exit 1
-pip install futures==2.1.4 || exit 1
-pip install jpegtran-cffi==0.3.1 || exit 1
 # https://github.com/openxc/openxc-python/issues/18
 pip install --pre pyusb || exit 1
-pip install colorama flask flask-compress zipstream \
-		waitress requests  || exit 1
-pip install git+https://github.com/dreamhost/stevedore.git@0.13
+pip install -e .[web] || exit 1
 python setup.py install || exit 1
 
 # Install cython-hidapi from GitHub
