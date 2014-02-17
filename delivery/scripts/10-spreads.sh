@@ -18,7 +18,7 @@ pip --version || exit 1
 pip install cffi || exit 1
 
 # Install spreads from GitHub
-git clone https://github.com/matti-kariluoma/spreads.git /usr/src/spreads || exit 1
+git clone https://github.com/jbaiter/spreads.git /usr/src/spreads || exit 1
 cd /usr/src/spreads || exit 1
 # https://github.com/openxc/openxc-python/issues/18
 pip install --pre pyusb || exit 1
